@@ -253,7 +253,7 @@ void matrix_i(matrix_t* output) {
     }
 }
 
-uint32_t matrix_sqrt(const matrix_t* a, matrix_t* output, float err) {
+uint32_t matrix_sqrt(const matrix_t* a, matrix_t* output, matrix_t* output_star, float err) {
     matrix_t* Y = matrix_alloc(a->size);
     matrix_t* Z = matrix_alloc(a->size);
     matrix_t* nextY = matrix_alloc(a->size);
@@ -282,6 +282,9 @@ uint32_t matrix_sqrt(const matrix_t* a, matrix_t* output, float err) {
     }
 
     matrix_cpy(output, Y);
+    if(output_star != NULL) {
+        matrix_cpy(output_star, Z);
+    }
 
     matrix_free(Y);
     matrix_free(Z);
@@ -316,26 +319,55 @@ void decomp2(const matrix_t* matrix, matrix_t* l) {
 
 void decomp2_block(const mblock_t* mblock, mblock_t* l) {
     mblock_t* a = mblock_alloc(mblock->size, mblock->data[0]->size);
+    matrix_t* Q = matrix_alloc(mblock->data[0]->size);
     matrix_t* tmp = matrix_alloc(mblock->data[0]->size);
+    matrix_t* tmp2 = matrix_alloc(mblock->data[0]->size);
     uint32_t n = mblock->size;
 
     mblock_cpy(a, mblock);
     mblock_zero(l);
 
-    for (uint32_t k = 0; k < n - 1; k++) {
-        matrix_sqrt(C(a, k, k), C(l, k, k), 0.001);
-        for (uint32_t i = k + 1; i < n; i++) {
-            matrix_div(C(a, i, k), C(l, k, k), C(l, i, k));
-        }
-        for (uint32_t j = k + 1; j < n; j++) {
-            for (uint32_t i = j; i < n; i++) {
-                matrix_mul(C(l, i, k), C(l, j, k), tmp);
-                matrix_sub(C(a, i, j), tmp, C(a, i, j));
-            }
-        }
-    }
-    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), 0.0001);
+    matrix_t* A = C(a, 0, 0);
+    matrix_t* B = C(a, 0, 1);
+    matrix_t* C = C(a, 1, 0);
+    matrix_t* D = C(a, 1, 1);
 
+    puts("A:");
+    matrix_print(A);
+    puts("B:");
+    matrix_print(B);
+    puts("C:");
+    matrix_print(C);
+    puts("D:");
+    matrix_print(D);
+
+    matrix_inv(A, tmp);
+    puts("A^-1:");
+    matrix_print(tmp);
+
+    matrix_mul(C, tmp, tmp);
+    matrix_mul(tmp, B, tmp);
+    matrix_sub(D, tmp, Q);
+
+    puts("Q:");
+    matrix_print(Q);
+
+    matrix_sqrt(Q, Q, NULL, 0.0001);
+    puts("Q^1/2:");
+    matrix_print(Q);
+
+    matrix_sqrt(A, tmp, tmp2, 0.0001);
+    matrix_inv(tmp2, tmp2);
+    matrix_mul(C, tmp2, tmp2);
+
+    matrix_cpy(C(l, 0, 0), tmp);
+    matrix_zero(C(l, 0, 1));
+    matrix_cpy(C(l, 1, 0), tmp2);
+    matrix_cpy(C(l, 1, 1), Q);
+
+    matrix_free(tmp2);
+    matrix_free(tmp);
+    matrix_free(Q);
     mblock_free(a);
 }
 

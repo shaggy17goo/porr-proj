@@ -310,6 +310,14 @@ uint32_t matrix_sqrt(const matrix_t* a, matrix_t* output, float err) {
     return i;
 }
 
+void matrix_transpose(const matrix_t* a, matrix_t* out) {
+    for (uint32_t i = 0; i < a->size; i++) {
+        for (uint32_t j = 0; j < a->size; j++) {
+            C(out, i, j) = C(a, j, i);
+        }
+    }
+}
+
 void decomp2(const matrix_t* matrix, matrix_t* l) {
     matrix_t* a = matrix_alloc(matrix->size);
 
@@ -335,7 +343,8 @@ void decomp2(const matrix_t* matrix, matrix_t* l) {
 
 void decomp2_block(const mblock_t* mblock, mblock_t* l) {
     mblock_t* a = mblock_alloc(mblock->size, mblock->data[0]->size);
-    matrix_t* tmp = matrix_alloc(mblock->data[0]->size);
+    matrix_t* tmp1 = matrix_alloc(mblock->data[0]->size);
+    matrix_t* tmp2 = matrix_alloc(mblock->data[0]->size);
     uint32_t n = mblock->size;
 
     mblock_cpy(a, mblock);
@@ -348,8 +357,9 @@ void decomp2_block(const mblock_t* mblock, mblock_t* l) {
         }
         for (uint32_t j = k + 1; j < n; j++) {
             for (uint32_t i = j; i < n; i++) {
-                matrix_mul(C(l, i, k), C(l, j, k), tmp);
-                matrix_sub(C(a, i, j), tmp, C(a, i, j));
+                matrix_transpose(C(l, j, k), tmp1);
+                matrix_mul(C(l, i, k), tmp1, tmp2);
+                matrix_sub(C(a, i, j), tmp2, C(a, i, j));
             }
         }
     }
@@ -398,21 +408,35 @@ int32_t main() {
     matrix_mul(matrix, matrixT, m_output);
     matrix_print(m_output);
     puts("=======================");
-
+    puts("Original matrix");
     mblock_fill(mblock, m_output);
     mblock_print(mblock);
     puts("=======================");
 
+    puts("Normal decomp");
     decomp2(m_output, m_output);
     matrix_print(m_output);
     puts("=======================");
 
+    puts("Block decomp");
     decomp2_block(mblock, mb_output);
     mblock_print(mb_output);
     puts("=======================");
 
+    puts("L*L.T");
+    matrix_t* decomposed = matrix_alloc(n);
+    matrix_reconstruct(decomposed, mb_output);
+    matrix_t* transposed = matrix_alloc(n);
+    matrix_transpose(decomposed, transposed);
+    matrix_t* reconstructed = matrix_alloc(n);
+    matrix_mul(decomposed, transposed, reconstructed);
+    matrix_print(reconstructed);
+    puts("=======================");
+
     mblock_free(mblock);
-    matrix_free(matrix);
+    matrix_free(decomposed);
+    matrix_free(transposed);
+    matrix_free(reconstructed);
 
     // uint32_t n = 3;
     // float _matrixB[] = {4, 12, -16, 12, 37, -43, -16, -43, 98};

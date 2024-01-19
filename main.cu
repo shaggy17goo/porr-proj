@@ -1,6 +1,5 @@
 #include <assert.h>
 #include <math.h>
-#include <omp.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -11,6 +10,16 @@
 
 #define COUNT_OF(x) (sizeof(x) / sizeof(x[0]))
 #define C(m, x, y) (m->data[(x) * (m->size) + (y)])
+
+#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
 
 typedef struct {
     float* data;
@@ -25,7 +34,21 @@ typedef struct {
 matrix_t* matrix_alloc(uint32_t size) {
     // calloc will memset 0
     float* data = (float*)calloc(size * size, sizeof(float));
-    matrix_t* m = malloc(sizeof(matrix_t));
+    matrix_t* m = (matrix_t*)malloc(sizeof(matrix_t));
+
+    m->data = data;
+    m->size = size;
+
+    return m;
+}
+
+matrix_t* matrix_alloc_cuda(uint32_t size) {
+    float* data;
+    gpuErrchk(cudaMallocManaged(&data, size * size * sizeof(float)));
+    memset(data, 0, size * size * sizeof(float));
+
+    matrix_t* m;
+    gpuErrchk(cudaMallocManaged(&m, sizeof(matrix_t)));
 
     m->data = data;
     m->size = size;
@@ -38,16 +61,21 @@ void matrix_free(matrix_t* m) {
     free(m);
 }
 
+void matrix_free_cuda(matrix_t* m) {
+    cudaFree(m->data);
+    cudaFree(m);
+}
+
 void matrix_cpy(matrix_t* dst, const matrix_t* src) {
     assert(dst->size == src->size);
     memcpy(dst->data, src->data, src->size * src->size * sizeof(float));
 }
 
-void matrix_zero(matrix_t* dst) {
+__host__ __device__ void matrix_zero(matrix_t* dst) {
     memset(dst->data, 0, dst->size * dst->size * sizeof(float));
 }
 
-void matrix_print(const matrix_t* m) {
+__host__ __device__ void matrix_print(const matrix_t* m) {
     for (uint32_t i = 0; i < m->size; i++) {
         for (uint32_t j = 0; j < m->size; j++) {
             printf("%10.2f", C(m, i, j));
@@ -58,7 +86,7 @@ void matrix_print(const matrix_t* m) {
 
 mblock_t* mblock_alloc(uint32_t size, uint32_t msize) {
     matrix_t** data = (matrix_t**)calloc(size * size, sizeof(matrix_t*));
-    mblock_t* b = malloc(sizeof(mblock_t));
+    mblock_t* b = (mblock_t*)malloc(sizeof(mblock_t));
 
     for (uint32_t i = 0; i < size * size; i++) {
         data[i] = matrix_alloc(msize);
@@ -68,6 +96,31 @@ mblock_t* mblock_alloc(uint32_t size, uint32_t msize) {
     b->size = size;
 
     return b;
+}
+
+mblock_t* mblock_alloc_cuda(uint32_t size, uint32_t msize) {
+    matrix_t** data;
+    gpuErrchk(cudaMallocManaged(&data, size * size * sizeof(matrix_t*)));
+    mblock_t* b;
+    gpuErrchk(cudaMallocManaged(&b, sizeof(mblock_t)));
+
+    for (uint32_t i = 0; i < size * size; i++) {
+        data[i] = matrix_alloc_cuda(msize);
+    }
+
+    b->data = data;
+    b->size = size;
+
+    return b;
+}
+
+void mblock_free_cuda(mblock_t* b) {
+    for (uint32_t i = 0; i < b->size * b->size; i++) {
+        matrix_free_cuda(b->data[i]);
+    }
+
+    cudaFree(b->data);
+    cudaFree(b);
 }
 
 void mblock_free(mblock_t* b) {
@@ -106,7 +159,7 @@ void mblock_print(const mblock_t* m) {
     }
 }
 
-void mblock_fill(mblock_t* dst, const matrix_t* src) {
+__host__ __device__ void mblock_fill(mblock_t* dst, const matrix_t* src) {
     assert(src->size % dst->size == 0);
     for (uint32_t i = 0; i < src->size; i++) {
         for (uint32_t j = 0; j < src->size; j++) {
@@ -219,7 +272,7 @@ void matrix_inv(const matrix_t* m, matrix_t* out) {
     matrix_free(minor);
 }
 
-void matrix_add(const matrix_t* a, const matrix_t* b, matrix_t* out) {
+__host__ __device__ void matrix_add(const matrix_t* a, const matrix_t* b, matrix_t* out) {
     assert(a->size == b->size);
     assert(a->size == out->size);
 
@@ -228,7 +281,7 @@ void matrix_add(const matrix_t* a, const matrix_t* b, matrix_t* out) {
     }
 }
 
-void matrix_sub(const matrix_t* a, const matrix_t* b, matrix_t* out) {
+__host__ __device__ void matrix_sub(const matrix_t* a, const matrix_t* b, matrix_t* out) {
     assert(a->size == b->size);
     assert(a->size == out->size);
 
@@ -237,7 +290,7 @@ void matrix_sub(const matrix_t* a, const matrix_t* b, matrix_t* out) {
     }
 }
 
-void matrix_mul(const matrix_t* a, const matrix_t* b, matrix_t* out) {
+__host__ __device__ void matrix_mul(const matrix_t* a, const matrix_t* b, matrix_t* out) {
     assert(a->size == b->size);
     assert(a->size == out->size);
 
@@ -324,7 +377,7 @@ uint32_t matrix_sqrt(const matrix_t* a, matrix_t* output, matrix_t* Y,
     return i;
 }
 
-void matrix_transpose(const matrix_t* a, matrix_t* out) {
+__device__ __host__ void matrix_transpose(const matrix_t* a, matrix_t* out) {
     for (uint32_t i = 0; i < a->size; i++) {
         for (uint32_t j = 0; j < a->size; j++) {
             C(out, i, j) = C(a, j, i);
@@ -395,10 +448,12 @@ void decomp2_block(const mblock_t* mblock, mblock_t* l) {
     for (uint32_t k = 0; k < n - 1; k++) {
         matrix_sqrt(C(a, k, k), C(l, k, k), Y, Z, nextY, nextZ, tmp1, 0.0001);
         matrix_inv(C(l, k, k), tmp1);
+
         for (uint32_t i = k + 1; i < n; i++) {
             // matrix_div(C(a, i, k), C(l, k, k), C(l, i, k));
             matrix_mul(C(a, i, k), tmp1, C(l, i, k));
         }
+
         for (uint32_t j = k + 1; j < n; j++) {
             for (uint32_t i = j; i < n; i++) {
                 matrix_transpose(C(l, j, k), tmp1);
@@ -407,6 +462,7 @@ void decomp2_block(const mblock_t* mblock, mblock_t* l) {
             }
         }
     }
+
     matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ, tmp1, 0.0001);
 
     mblock_free(a);
@@ -418,10 +474,39 @@ void decomp2_block(const mblock_t* mblock, mblock_t* l) {
     matrix_free(nextZ);
 }
 
-void decomp2_block_mpi(const mblock_t* mblock, mblock_t* l) {
-    mblock_t* a = mblock_alloc(mblock->size, mblock->data[0]->size);
-    matrix_t* tmp1 = matrix_alloc(mblock->data[0]->size);
-    matrix_t* tmp2 = matrix_alloc(mblock->data[0]->size);
+__global__ void loop1(uint32_t n, uint32_t k, mblock_t* l, const mblock_t* a, const matrix_t* tmp) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    for (uint32_t i = k + index + 1; i < n; i += stride) {
+        // matrix_div(C(a, i, k), C(l, k, k), C(l, i, k));
+        matrix_mul(C(a, i, k), tmp, C(l, i, k));
+    }
+}
+
+__global__ void loop2(uint32_t n, uint32_t k, mblock_t* l, mblock_t* a) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    assert(a->data[0]->size == 4);
+
+    float tmp1_data[16];
+    float tmp2_data[16];
+    matrix_t tmp1 = {.data = tmp1_data, .size = 4};
+    matrix_t tmp2 = {.data = tmp2_data, .size = 4};
+
+    for (uint32_t j = k + index + 1; j < n; j += stride) {
+        for (uint32_t i = j; i < n; i++) {
+            matrix_transpose(C(l, j, k), &tmp1);
+            matrix_mul(C(l, i, k), &tmp1, &tmp2);
+            matrix_sub(C(a, i, j), &tmp2, C(a, i, j));
+        }
+    }
+}
+
+void decomp2_block_pararell(const mblock_t* mblock, mblock_t* l) {
+    mblock_t* a = mblock_alloc_cuda(mblock->size, mblock->data[0]->size);
+    matrix_t* tmp1 = matrix_alloc_cuda(mblock->data[0]->size);
     // optimization reasons
     matrix_t* Y = matrix_alloc(tmp1->size);
     matrix_t* Z = matrix_alloc(tmp1->size);
@@ -432,132 +517,24 @@ void decomp2_block_mpi(const mblock_t* mblock, mblock_t* l) {
 
     mblock_cpy(a, mblock);
     mblock_zero(l);
+
+    int blockSize = 256;
+    int numBlocks = (n + blockSize - 1) / blockSize;
 
     for (uint32_t k = 0; k < n - 1; k++) {
         matrix_sqrt(C(a, k, k), C(l, k, k), Y, Z, nextY, nextZ, tmp1, 0.0001);
         matrix_inv(C(l, k, k), tmp1);
-#pragma omp parallel for
-        for (uint32_t i = k + 1; i < n; i++) {
-            // matrix_div(C(a, i, k), C(l, k, k), C(l, i, k));
-            matrix_mul(C(a, i, k), tmp1, C(l, i, k));
-        }
 
-#pragma omp parallel for
-        for (uint32_t j = k + 1; j < n; j++) {
-            for (uint32_t i = j; i < n; i++) {
-                matrix_transpose(C(l, j, k), tmp1);
-                matrix_mul(C(l, i, k), tmp1, tmp2);
-                matrix_sub(C(a, i, j), tmp2, C(a, i, j));
-            }
-        }
+        loop1<<<numBlocks, blockSize>>>(n, k, l, a, tmp1);
+        cudaDeviceSynchronize();
+
+        loop2<<<numBlocks, blockSize>>>(n, k, l, a);
+        cudaDeviceSynchronize();
     }
     matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ, tmp1, 0.0001);
 
-    mblock_free(a);
-    matrix_free(tmp1);
-    matrix_free(tmp2);
-    matrix_free(Y);
-    matrix_free(Z);
-    matrix_free(nextY);
-    matrix_free(nextZ);
-}
-
-typedef struct {
-    uint32_t start;
-    uint32_t end;
-    uint32_t k;
-    uint32_t n;
-    mblock_t* a;
-    mblock_t* l;
-    matrix_t* inv;
-} thread_args;
-
-void* loop1(void* arguments) {
-    thread_args* args = (thread_args*)arguments;
-
-    for (uint32_t i = args->start; i < args->end; i++) {
-        // matrix_div(C(a, i, k), C(l, k, k), C(l, i, k));
-        matrix_mul(C(args->a, i, args->k), args->inv, C(args->l, i, args->k));
-    }
-
-    return NULL;
-}
-
-void* loop2(void* arguments) {
-    thread_args* args = (thread_args*)arguments;
-
-    matrix_t* tmp1 = matrix_alloc(args->a->data[0]->size);
-    matrix_t* tmp2 = matrix_alloc(args->a->data[0]->size);
-    for (uint32_t j = args->start; j < args->end; j++) {
-        for (uint32_t i = j; i < args->n; i++) {
-            matrix_transpose(C(args->l, j, args->k), tmp1);
-            matrix_mul(C(args->l, i, args->k), tmp1, tmp2);
-            matrix_sub(C(args->a, i, j), tmp2, C(args->a, i, j));
-        }
-    }
-    matrix_free(tmp1);
-    matrix_free(tmp2);
-
-    return NULL;
-}
-
-#define NUM_THREADS 12
-
-void decomp2_block_pthreads(const mblock_t* mblock, mblock_t* l) {
-    mblock_t* a = mblock_alloc(mblock->size, mblock->data[0]->size);
-    matrix_t* tmp1 = matrix_alloc(mblock->data[0]->size);
-    matrix_t* tmp2 = matrix_alloc(mblock->data[0]->size);
-    // optimization reasons
-    matrix_t* Y = matrix_alloc(tmp1->size);
-    matrix_t* Z = matrix_alloc(tmp1->size);
-    matrix_t* nextY = matrix_alloc(tmp1->size);
-    matrix_t* nextZ = matrix_alloc(tmp1->size);
-
-    uint32_t n = mblock->size;
-
-    mblock_cpy(a, mblock);
-    mblock_zero(l);
-
-    pthread_t threads[NUM_THREADS];
-    thread_args args[NUM_THREADS];
-    for (uint32_t k = 0; k < n - 1; k++) {
-        matrix_sqrt(C(a, k, k), C(l, k, k), Y, Z, nextY, nextZ, tmp1, 0.0001);
-        matrix_inv(C(l, k, k), tmp2);
-
-        uint32_t chunk_size = (n - k - 1) / NUM_THREADS;
-        for (int t = 0; t < NUM_THREADS; t++) {
-            args[t].start = k + 1 + t * chunk_size;
-            args[t].end = (t == NUM_THREADS - 1) ? n : args[t].start + chunk_size;
-            args[t].k = k;
-            args[t].a = a;
-            args[t].l = l;
-            args[t].inv = tmp2;
-
-            pthread_create(&threads[t], NULL, loop1, (void*)&args[t]);
-        }
-        for (int t = 0; t < NUM_THREADS; t++) {
-            pthread_join(threads[t], NULL);
-        }
-
-        for (int t = 0; t < NUM_THREADS; t++) {
-            args[t].start = k + 1 + t * chunk_size;
-            args[t].end = (t == NUM_THREADS - 1) ? n : args[t].start + chunk_size;
-            args[t].k = k;
-            args[t].a = a;
-            args[t].n = n;
-            args[t].l = l;
-
-            pthread_create(&threads[t], NULL, loop2, (void*)&args[t]);
-        }
-        for (int t = 0; t < NUM_THREADS; t++) {
-            pthread_join(threads[t], NULL);
-        }
-    }
-    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ, tmp1, 0.0001);
-
-    mblock_free(a);
-    matrix_free(tmp1);
-    matrix_free(tmp2);
+    mblock_free_cuda(a);
+    matrix_free_cuda(tmp1);
     matrix_free(Y);
     matrix_free(Z);
     matrix_free(nextY);
@@ -641,65 +618,46 @@ void time_block_decompose(matrix_t* matrix, uint32_t bs) {
     elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
     printf("block,%u,%u,%f\n", matrix->size, bs, elapsed);
 
-    free(mblock);
-    free(m_out);
-}
-
-void time_block_decompose_mpi(matrix_t* matrix, uint32_t bs) {
-    struct timespec start, finish;
-    double elapsed;
-
-    assert(matrix->size % bs == 0);
-
-    mblock_t* mblock = mblock_alloc(matrix->size / bs, bs);
-    mblock_t* m_out = mblock_alloc(matrix->size / bs, bs);
-
-    mblock_fill(mblock, matrix);
-
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    decomp2_block_mpi(mblock, m_out);
-    clock_gettime(CLOCK_MONOTONIC, &finish);
-    elapsed = (finish.tv_sec - start.tv_sec);
-    elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
-    printf("block_mpi,%u,%u,%f\n", matrix->size, bs, elapsed);
+    matrix_t* out = matrix_alloc(matrix->size);
+    matrix_t* outT = matrix_alloc(matrix->size);
+    matrix_t* res = matrix_alloc(matrix->size);
 
     free(mblock);
     free(m_out);
 }
 
-void time_block_decompose_phreads(matrix_t* matrix, uint32_t bs) {
+void time_block_decompose_pararell(matrix_t* matrix, uint32_t bs) {
     struct timespec start, finish;
     double elapsed;
 
     assert(matrix->size % bs == 0);
 
-    mblock_t* mblock = mblock_alloc(matrix->size / bs, bs);
-    mblock_t* m_out = mblock_alloc(matrix->size / bs, bs);
+    mblock_t* mblock = mblock_alloc_cuda(matrix->size / bs, bs);
+    mblock_t* m_out = mblock_alloc_cuda(matrix->size / bs, bs);
 
     mblock_fill(mblock, matrix);
 
     clock_gettime(CLOCK_MONOTONIC, &start);
-    decomp2_block_pthreads(mblock, m_out);
+    decomp2_block_pararell(mblock, m_out);
     clock_gettime(CLOCK_MONOTONIC, &finish);
     elapsed = (finish.tv_sec - start.tv_sec);
     elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
-    printf("block_phreads,%u,%u,%f\n", matrix->size, bs, elapsed);
+    printf("block_pararell_cuda,%u,%u,%f\n", matrix->size, bs, elapsed);
 
-    free(mblock);
-    free(m_out);
+    mblock_free_cuda(mblock);
+    mblock_free_cuda(m_out);
 }
 
 int32_t main(int argc, char** argv) {
     srand(2137);
 
     for (uint32_t n = 0; n < 10; n++) {
-        for (uint32_t i = 4; i <= 12; i++) {
+        for (uint32_t i = 4; i <= 11; i++) {
             matrix_t* matrix = matrix_alloc(1 << i);
             matrix_random_pds(matrix, 50);
 
             time_block_decompose(matrix, 4);
-            time_block_decompose_phreads(matrix, 4);
-            time_block_decompose_mpi(matrix, 4);
+            time_block_decompose_pararell(matrix, 4);
 
             matrix_free(matrix);
         }

@@ -174,10 +174,8 @@ void matrix_reconstruct(matrix_t* dst, const mblock_t* src) {
 
     for (uint32_t i = 0; i < dst->size; i++) {
         for (uint32_t j = 0; j < dst->size; j++) {
-            matrix_t* submatrix =
-                C(src, i / (src->data[0]->size), j / (src->data[0]->size));
-            C(dst, i, j) = C(submatrix, i % (src->data[0]->size),
-                             j % (src->data[0]->size));
+            matrix_t* submatrix = C(src, i / (src->data[0]->size), j / (src->data[0]->size));
+            C(dst, i, j) = C(submatrix, i % (src->data[0]->size), j % (src->data[0]->size));
         }
     }
 }
@@ -274,8 +272,7 @@ void matrix_inv(const matrix_t* m, matrix_t* out) {
     matrix_free(minor);
 }
 
-__host__ __device__ void matrix_add(const matrix_t* a, const matrix_t* b,
-                                    matrix_t* out) {
+__host__ __device__ void matrix_add(const matrix_t* a, const matrix_t* b, matrix_t* out) {
     assert(a->size == b->size);
     assert(a->size == out->size);
 
@@ -284,8 +281,7 @@ __host__ __device__ void matrix_add(const matrix_t* a, const matrix_t* b,
     }
 }
 
-__host__ __device__ void matrix_sub(const matrix_t* a, const matrix_t* b,
-                                    matrix_t* out) {
+__host__ __device__ void matrix_sub(const matrix_t* a, const matrix_t* b, matrix_t* out) {
     assert(a->size == b->size);
     assert(a->size == out->size);
 
@@ -294,8 +290,7 @@ __host__ __device__ void matrix_sub(const matrix_t* a, const matrix_t* b,
     }
 }
 
-__host__ __device__ void matrix_mul(const matrix_t* a, const matrix_t* b,
-                                    matrix_t* out) {
+__host__ __device__ void matrix_mul(const matrix_t* a, const matrix_t* b, matrix_t* out) {
     assert(a->size == b->size);
     assert(a->size == out->size);
 
@@ -467,8 +462,8 @@ void decomp2_block(const mblock_t* mblock, mblock_t* l) {
             }
         }
     }
-    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ,
-                tmp1, 0.0001);
+
+    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ, tmp1, 0.0001);
 
     mblock_free(a);
     matrix_free(tmp1);
@@ -479,8 +474,7 @@ void decomp2_block(const mblock_t* mblock, mblock_t* l) {
     matrix_free(nextZ);
 }
 
-__global__ void loop1(uint32_t n, uint32_t k, mblock_t* l, const mblock_t* a,
-                      const matrix_t* tmp) {
+__global__ void loop1(uint32_t n, uint32_t k, mblock_t* l, const mblock_t* a, const matrix_t* tmp) {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
 
@@ -537,8 +531,7 @@ void decomp2_block_pararell(const mblock_t* mblock, mblock_t* l) {
         loop2<<<numBlocks, blockSize>>>(n, k, l, a);
         cudaDeviceSynchronize();
     }
-    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ,
-                tmp1, 0.0001);
+    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ, tmp1, 0.0001);
 
     mblock_free_cuda(a);
     matrix_free_cuda(tmp1);

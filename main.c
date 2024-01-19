@@ -121,10 +121,8 @@ void matrix_reconstruct(matrix_t* dst, const mblock_t* src) {
 
     for (uint32_t i = 0; i < dst->size; i++) {
         for (uint32_t j = 0; j < dst->size; j++) {
-            matrix_t* submatrix =
-                C(src, i / (src->data[0]->size), j / (src->data[0]->size));
-            C(dst, i, j) = C(submatrix, i % (src->data[0]->size),
-                             j % (src->data[0]->size));
+            matrix_t* submatrix = C(src, i / (src->data[0]->size), j / (src->data[0]->size));
+            C(dst, i, j) = C(submatrix, i % (src->data[0]->size), j % (src->data[0]->size));
         }
     }
 }
@@ -409,8 +407,7 @@ void decomp2_block(const mblock_t* mblock, mblock_t* l) {
             }
         }
     }
-    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ,
-                tmp1, 0.0001);
+    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ, tmp1, 0.0001);
 
     mblock_free(a);
     matrix_free(tmp1);
@@ -454,8 +451,7 @@ void decomp2_block_mpi(const mblock_t* mblock, mblock_t* l) {
             }
         }
     }
-    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ,
-                tmp1, 0.0001);
+    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ, tmp1, 0.0001);
 
     mblock_free(a);
     matrix_free(tmp1);
@@ -531,8 +527,7 @@ void decomp2_block_pthreads(const mblock_t* mblock, mblock_t* l) {
         uint32_t chunk_size = (n - k - 1) / NUM_THREADS;
         for (int t = 0; t < NUM_THREADS; t++) {
             args[t].start = k + 1 + t * chunk_size;
-            args[t].end =
-                (t == NUM_THREADS - 1) ? n : args[t].start + chunk_size;
+            args[t].end = (t == NUM_THREADS - 1) ? n : args[t].start + chunk_size;
             args[t].k = k;
             args[t].a = a;
             args[t].l = l;
@@ -546,8 +541,7 @@ void decomp2_block_pthreads(const mblock_t* mblock, mblock_t* l) {
 
         for (int t = 0; t < NUM_THREADS; t++) {
             args[t].start = k + 1 + t * chunk_size;
-            args[t].end =
-                (t == NUM_THREADS - 1) ? n : args[t].start + chunk_size;
+            args[t].end = (t == NUM_THREADS - 1) ? n : args[t].start + chunk_size;
             args[t].k = k;
             args[t].a = a;
             args[t].n = n;
@@ -559,8 +553,7 @@ void decomp2_block_pthreads(const mblock_t* mblock, mblock_t* l) {
             pthread_join(threads[t], NULL);
         }
     }
-    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ,
-                tmp1, 0.0001);
+    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ, tmp1, 0.0001);
 
     mblock_free(a);
     matrix_free(tmp1);

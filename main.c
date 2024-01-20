@@ -418,7 +418,7 @@ void decomp2_block(const mblock_t* mblock, mblock_t* l) {
     matrix_free(nextZ);
 }
 
-void decomp2_block_mpi(const mblock_t* mblock, mblock_t* l) {
+void decomp2_block_mp(const mblock_t* mblock, mblock_t* l) {
     mblock_t* a = mblock_alloc(mblock->size, mblock->data[0]->size);
     matrix_t* tmp1 = matrix_alloc(mblock->data[0]->size);
     matrix_t* tmp2 = matrix_alloc(mblock->data[0]->size);
@@ -645,7 +645,7 @@ void time_block_decompose(matrix_t* matrix, uint32_t bs) {
     free(m_out);
 }
 
-void time_block_decompose_mpi(matrix_t* matrix, uint32_t bs) {
+void time_block_decompose_mp(matrix_t* matrix, uint32_t bs) {
     struct timespec start, finish;
     double elapsed;
 
@@ -657,11 +657,11 @@ void time_block_decompose_mpi(matrix_t* matrix, uint32_t bs) {
     mblock_fill(mblock, matrix);
 
     clock_gettime(CLOCK_MONOTONIC, &start);
-    decomp2_block_mpi(mblock, m_out);
+    decomp2_block_mp(mblock, m_out);
     clock_gettime(CLOCK_MONOTONIC, &finish);
     elapsed = (finish.tv_sec - start.tv_sec);
     elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
-    printf("block_mpi,%u,%u,%f\n", matrix->size, bs, elapsed);
+    printf("block_mp,%u,%u,%f\n", matrix->size, bs, elapsed);
 
     free(mblock);
     free(m_out);
@@ -693,13 +693,11 @@ int32_t main(int argc, char** argv) {
     srand(2137);
 
     for (uint32_t n = 0; n < 10; n++) {
-        for (uint32_t i = 4; i <= 12; i++) {
+        for (uint32_t i = 12; i <= 12; i++) {
             matrix_t* matrix = matrix_alloc(1 << i);
             matrix_random_pds(matrix, 50);
 
-            time_block_decompose(matrix, 4);
             time_block_decompose_phreads(matrix, 4);
-            time_block_decompose_mpi(matrix, 4);
 
             matrix_free(matrix);
         }

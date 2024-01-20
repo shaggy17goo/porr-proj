@@ -693,11 +693,13 @@ int32_t main(int argc, char** argv) {
     srand(2137);
 
     for (uint32_t n = 0; n < 10; n++) {
-        for (uint32_t i = 12; i <= 12; i++) {
+        for (uint32_t i = 4; i <= 12; i++) {
             matrix_t* matrix = matrix_alloc(1 << i);
             matrix_random_pds(matrix, 50);
 
+            time_block_decompose(matrix, 4);
             time_block_decompose_phreads(matrix, 4);
+            time_block_decompose_mpi(matrix, 4);
 
             matrix_free(matrix);
         }
